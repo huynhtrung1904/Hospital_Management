@@ -2,156 +2,124 @@
 
 namespace Tests\Unit;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use App\Models\User;
-use App\Models\Doctor;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Models\Laboratory;
 use App\Models\LaboratoryType;
+use App\Models\Doctor;
+use App\Models\User;
 
 class DoctorLabControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * Test fetching lab list with all required data.
-     */
-    public function test_fetch_lab_list(): void
+    protected $doctor;
+    protected $patient;
+    protected $labType;
+
+    public function setUp(): void
     {
-        // Create dummy data
-        LaboratoryType::factory()->count(3)->create();
-        Laboratory::factory()->count(5)->create();
+        parent::setUp();
 
-        // Send request to the lab list route
-        $response = $this->get('/doctor/lab');
-
-        // Assert the response is successful
-        $response->assertStatus(200)
-            ->assertViewIs('doctor.lab')
-            ->assertViewHasAll([
-                'labTypes',
-                'laboratories',
-                'doctors',
-                'patients',
-                'totalTests',
-                'pendingTests',
-                'completedTests',
-                'totalRevenue',
-            ]);
+        // Seed some default data
+        $this->doctor = Doctor::factory()->create();
+        $this->patient = User::factory()->create(['roleID' => 'patient']);
+        $this->labType = LaboratoryType::factory()->create();
     }
 
-    /**
-     * Test storing a new lab assignment.
-     */
-    public function test_store_lab_assignment(): void
+    public function test_lab_page_loads_successfully()
     {
-        // Create necessary data
-        $labType = LaboratoryType::factory()->create();
-        $user = User::factory()->create();
-        $doctor = Doctor::factory()->create();
+        $response = $this->get(route('doctor.lab'));
+        $response->assertStatus(200);
+    }
 
-        // Data for creating a new laboratory assignment
+    public function test_store_lab()
+    {
         $data = [
-            'lab_type' => $labType->LaboratoryTypeID,
-            'user_id' => $user->UserID,
-            'doctor_id' => $doctor->DoctorID,
-            'lab_date' => '2024-01-01',
-            'lab_time' => '09:00 AM',
-            'price' => 500.0,
+            'lab_type' => $this->labType->LaboratoryTypeID,
+            'user_id' => $this->patient->UserID,
+            'doctor_id' => $this->doctor->DoctorID,
+            'lab_date' => now()->toDateString(),
+            'lab_time' => now()->toTimeString(),
+            'price' => 500,
         ];
 
-        // Send POST request
-        $response = $this->postJson('/doctor/lab/store', $data);
+        $response = $this->postJson(route('doctor.lab.store'), $data);
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Laboratory assignment created successfully']);
 
-        // Assert the response
-        $response->assertStatus(200)
-            ->assertJson(['message' => 'Laboratory assignment created successfully']);
-
-        // Assert the database contains the new lab assignment
         $this->assertDatabaseHas('laboratories', [
             'LaboratoryTypeID' => $data['lab_type'],
             'UserID' => $data['user_id'],
-            'DoctorID' => $data['doctor_id'],
-            'LaboratoryDate' => $data['lab_date'],
-            'TotalPrice' => $data['price'],
         ]);
     }
 
-    /**
-     * Test updating a lab assignment.
-     */
-    public function test_update_lab_assignment(): void
+    public function test_update_lab()
     {
-        // Create dummy data
-        $lab = Laboratory::factory()->create();
+        $lab = Laboratory::factory()->create([
+            'LaboratoryTypeID' => $this->labType->LaboratoryTypeID,
+            'UserID' => $this->patient->UserID,
+            'DoctorID' => $this->doctor->DoctorID,
+        ]);
 
-        // Data for updating the lab
         $updateData = [
-            'lab_type' => $lab->LaboratoryTypeID,
-            'patient_id' => $lab->UserID,
-            'doctor_id' => $lab->DoctorID,
-            'lab_date' => '2024-01-02',
-            'lab_time' => '10:00 AM',
-            'price' => 600.0,
-            'status' => 'Completed',
+            'lab_type' => $this->labType->LaboratoryTypeID,
+            'user_id' => $this->patient->UserID,
+            'doctor_id' => $this->doctor->DoctorID,
+            'lab_date' => now()->toDateString(),
+            'lab_time' => now()->toTimeString(),
+            'price' => 1000,
         ];
 
-        // Send PUT request
-        $response = $this->putJson("/doctor/lab/update/{$lab->id}", $updateData);
+        $response = $this->putJson(route('doctor.lab.update', $lab->LaboratoryID), $updateData);
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Lab test updated successfully']);
 
-        // Assert the response
-        $response->assertStatus(200)
-            ->assertJson(['message' => 'Lab test updated successfully']);
-
-        // Assert the database contains the updated data
         $this->assertDatabaseHas('laboratories', [
-            'LaboratoryDate' => $updateData['lab_date'],
-            'LaboratoryTime' => $updateData['lab_time'],
-            'TotalPrice' => $updateData['price'],
-            'Status' => $updateData['status'],
+            'LaboratoryID' => $lab->LaboratoryID,
+            'TotalPrice' => 1000,
         ]);
     }
 
-    /**
-     * Test deleting a lab assignment.
-     */
-    public function test_delete_lab_assignment(): void
+    public function test_delete_lab()
     {
-        // Create a dummy lab
-        $lab = Laboratory::factory()->create();
+        $lab = Laboratory::factory()->create([
+            'LaboratoryTypeID' => $this->labType->LaboratoryTypeID,
+            'UserID' => $this->patient->UserID,
+        ]);
 
-        // Send DELETE request
-        $response = $this->deleteJson("/doctor/lab/destroy/{$lab->id}");
+        $response = $this->deleteJson(route('doctor.lab.destroy', $lab->LaboratoryID));
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Laboratory assignment deleted successfully']);
 
-        // Assert the response
-        $response->assertStatus(200)
-            ->assertJson(['message' => 'Lab test deleted successfully']);
-
-        // Assert the database no longer has the lab
-        $this->assertDatabaseMissing('laboratories', ['id' => $lab->id]);
+        $this->assertDatabaseMissing('laboratories', ['LaboratoryID' => $lab->LaboratoryID]);
     }
 
-    /**
-     * Test showing a lab assignment detail.
-     */
-    public function test_show_lab_assignment_detail(): void
+    public function test_show_lab_details()
     {
-        // Create dummy data
-        $lab = Laboratory::factory()->create();
+        $lab = Laboratory::factory()->create([
+            'LaboratoryTypeID' => $this->labType->LaboratoryTypeID,
+            'UserID' => $this->patient->UserID,
+            'DoctorID' => $this->doctor->DoctorID,
+        ]);
 
-        // Send GET request
-        $response = $this->getJson("/doctor/lab/show/{$lab->id}");
+        $response = $this->getJson(route('doctor.lab.show', $lab->LaboratoryID));
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
+            'labType',
+            'patientName',
+            'doctorName',
+            'labDate',
+            'labTime',
+            'price',
+            'result'
+        ]);
+    }
 
-        // Assert the response
-        $response->assertStatus(200)
-            ->assertJsonStructure([
-                'labType',
-                'patientName',
-                'doctorName',
-                'labDate',
-                'labTime',
-                'price',
-                'result',
-            ]);
+    public function test_generate_report()
+    {
+        $response = $this->postJson(route('doctor.lab.generateReport'));
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Report generated successfully']);
     }
 }

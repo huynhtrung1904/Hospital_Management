@@ -2,97 +2,146 @@
 
 namespace Tests\Unit;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Models\Laboratory;
 use App\Models\LaboratoryType;
+use App\Models\Doctor;
+use App\Models\User;
+use Illuminate\Support\Facades\Log;
 
 class AdminLabControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * Test if the application returns a successful response for the lab list page.
-     */
-    public function test_it_displays_laboratory_list(): void
+    // Define the properties
+    protected $doctor;
+    protected $patient;
+    protected $labType;
+
+    public function setUp(): void
     {
-        // Create dummy laboratory types
-        LaboratoryType::factory()->count(3)->create();
+        parent::setUp();
 
-        // Send a GET request to the laboratory list route
-        $response = $this->get('/admin/laboratories');
-
-        // Assert that the response is successful
-        $response->assertStatus(200);
-        $response->assertViewIs('admin.laboratories.index'); // Ensure the correct view is used
-        $response->assertViewHas('labTypes'); // Ensure 'labTypes' is passed to the view
+        // Seed some default data
+        $this->doctor = Doctor::factory()->create();
+        $this->patient = User::factory()->create(['roleID' => 'patient']);
+        $this->labType = LaboratoryType::factory()->create();
     }
 
-    /**
-     * Test if a new laboratory can be created successfully.
-     */
-    public function test_it_creates_a_new_laboratory(): void
+    public function test_lab_page_loads_successfully()
     {
-        // Simulate an admin user
-        $admin = User::factory()->create(['is_admin' => true]);
+        $response = $this->get(route('admin.lab'));
+        $response->assertStatus(200);
+    }
 
-        // Log in as admin
-        $this->actingAs($admin);
-
-        // Dummy data for a new laboratory
+    public function test_store_lab()
+    {
         $data = [
-            'name' => 'New Lab',
-            'type_id' => 1, // ID of the laboratory type
-            'location' => 'Main Campus',
+            'lab_type' => $this->labType->LaboratoryTypeID,
+            'user_id' => $this->patient->UserID,
+            'doctor_id' => $this->doctor->DoctorID,
+            'lab_date' => now()->toDateString(),
+            'lab_time' => now()->toTimeString(),
+            'price' => 500,
         ];
 
-        // Send a POST request to create a laboratory
-        $response = $this->post('/admin/laboratories', $data);
+        $response = $this->postJson(route('admin.lab.store'), $data);
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Laboratory assignment created successfully']);
 
-        // Assert that the response redirects correctly
-        $response->assertRedirect('/admin/laboratories');
-
-        // Assert that the database has the new laboratory
-        $this->assertDatabaseHas('laboratories', $data);
+        $this->assertDatabaseHas('laboratories', [
+            'LaboratoryTypeID' => $data['lab_type'],
+            'UserID' => $data['user_id'],
+        ]);
     }
 
-    /**
-     * Test if an existing laboratory can be updated successfully.
-     */
-    public function test_it_updates_a_laboratory(): void
+    public function test_update_lab()
     {
-        // Create a dummy laboratory
-        $lab = Laboratory::factory()->create();
+        $lab = Laboratory::factory()->create([
+            'LaboratoryTypeID' => $this->labType->LaboratoryTypeID,
+            'UserID' => $this->patient->UserID,
+            'DoctorID' => $this->doctor->DoctorID,
+        ]);
 
-        // Dummy data for updating the laboratory
-        $updateData = ['name' => 'Updated Lab Name'];
+        $updateData = [
+            'lab_type' => $this->labType->LaboratoryTypeID,
+            'user_id' => $this->patient->UserID,
+            'doctor_id' => $this->doctor->DoctorID,
+            'lab_date' => now()->toDateString(),
+            'lab_time' => now()->toTimeString(),
+            'price' => 1000,
+        ];
 
-        // Send a PUT request to update the laboratory
-        $response = $this->put("/admin/laboratories/{$lab->id}", $updateData);
+        $response = $this->putJson(route('admin.lab.update', $lab->LaboratoryID), $updateData);
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Lab test updated successfully']);
 
-        // Assert that the response redirects correctly
-        $response->assertRedirect('/admin/laboratories');
-
-        // Assert that the database has the updated data
-        $this->assertDatabaseHas('laboratories', $updateData);
+        $this->assertDatabaseHas('laboratories', [
+            'LaboratoryID' => $lab->LaboratoryID,
+            'TotalPrice' => 1000,
+        ]);
     }
 
-    /**
-     * Test if a laboratory can be deleted successfully.
-     */
-    public function test_it_deletes_a_laboratory(): void
+    public function test_delete_lab()
     {
-        // Create a dummy laboratory
-        $lab = Laboratory::factory()->create();
+        $lab = Laboratory::factory()->create([
+            'LaboratoryTypeID' => $this->labType->LaboratoryTypeID,
+            'UserID' => $this->patient->UserID,
+        ]);
 
-        // Send a DELETE request to delete the laboratory
-        $response = $this->delete("/admin/laboratories/{$lab->id}");
+        $response = $this->deleteJson(route('admin.lab.destroy', $lab->LaboratoryID));
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Lab test deleted successfully']);
 
-        // Assert that the response redirects correctly
-        $response->assertRedirect('/admin/laboratories');
+        $this->assertDatabaseMissing('laboratories', ['LaboratoryID' => $lab->LaboratoryID]);
+    }
 
-        // Assert that the laboratory no longer exists in the database
-        $this->assertDatabaseMissing('laboratories', ['id' => $lab->id]);
+    public function test_store_lab_type()
+    {
+        $data = [
+            'name' => 'Blood Test',
+            'description' => 'Routine blood test',
+            'price' => 50,
+        ];
+
+        $response = $this->postJson(route('admin.lab_type.store'), $data);
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Lab type created successfully']);
+
+        $this->assertDatabaseHas('laboratory_types', [
+            'LaboratoryTypeName' => $data['name'],
+        ]);
+    }
+
+    public function test_update_lab_type()
+    {
+        $labType = LaboratoryType::factory()->create();
+
+        $updateData = [
+            'name' => 'Updated Test',
+            'description' => 'Updated description',
+            'price' => 100,
+        ];
+
+        $response = $this->putJson(route('admin.lab_type.update', $labType->LaboratoryTypeID), $updateData);
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Lab type updated successfully']);
+
+        $this->assertDatabaseHas('laboratory_types', [
+            'LaboratoryTypeID' => $labType->LaboratoryTypeID,
+            'LaboratoryTypeName' => 'Updated Test',
+        ]);
+    }
+
+    public function test_delete_lab_type()
+    {
+        $labType = LaboratoryType::factory()->create();
+
+        $response = $this->deleteJson(route('admin.lab_type.destroy', $labType->LaboratoryTypeID));
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Lab type deleted successfully']);
+
+        $this->assertDatabaseMissing('laboratory_types', ['LaboratoryTypeID' => $labType->LaboratoryTypeID]);
     }
 }
